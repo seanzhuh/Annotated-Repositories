@@ -86,8 +86,8 @@ def printout(flog, data):
 def placeholder_inputs():
     pointclouds_ph = tf.placeholder(tf.float32, shape=(batch_size, point_num, 3))
     input_label_ph = tf.placeholder(tf.float32, shape=(batch_size, NUM_CATEGORIES))
-    labels_ph = tf.placeholder(tf.int32, shape=(batch_size))
-    seg_ph = tf.placeholder(tf.int32, shape=(batch_size, point_num))
+    labels_ph = tf.placeholder(tf.int32, shape=(batch_size)) # per instance label, an instance contain multiple points
+    seg_ph = tf.placeholder(tf.int32, shape=(batch_size, point_num)) # per point part label
     return pointclouds_ph, input_label_ph, labels_ph, seg_ph
 
 def convert_label_to_one_hot(labels):

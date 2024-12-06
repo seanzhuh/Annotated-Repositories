@@ -10,7 +10,9 @@ import tf_util
 from transform_nets import input_transform_net, feature_transform_net
 
 def placeholder_inputs(batch_size, num_point):
+    # input point clouds
     pointclouds_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point, 3))
+    # label for each sample
     labels_pl = tf.placeholder(tf.int32, shape=(batch_size))
     return pointclouds_pl, labels_pl
 
@@ -23,22 +25,31 @@ def get_model(point_cloud, is_training, bn_decay=None):
 
     with tf.variable_scope('transform_net1') as sc:
         transform = input_transform_net(point_cloud, is_training, bn_decay, K=3)
+    # BxNx3, Bx3x3, BxNx3
+    # transform was initially identity matrix
     point_cloud_transformed = tf.matmul(point_cloud, transform)
+    # BxNx3x1
     input_image = tf.expand_dims(point_cloud_transformed, -1)
-
-    net = tf_util.conv2d(input_image, 64, [1,3],
-                         padding='VALID', stride=[1,1],
+    # tf_util.conv2d treats input_image and B x H x W x C
+    # indeed it's a mlp that maps each point to 64 dim separately
+    net = tf_util.conv2d(input_image, 64, [1, 3],  # kernel_h, kernel_w
+                         # padding = VALID means no padding
+                         padding='VALID', stride=[1, 1],
                          bn=True, is_training=is_training,
                          scope='conv1', bn_decay=bn_decay)
+    # BxNx1x64
     net = tf_util.conv2d(net, 64, [1,1],
                          padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training,
                          scope='conv2', bn_decay=bn_decay)
 
     with tf.variable_scope('transform_net2') as sc:
+        # initially a Bx64x64 identity matrix
         transform = feature_transform_net(net, is_training, bn_decay, K=64)
     end_points['transform'] = transform
+    # BxNx64, Bx64x64 -> BxNx64
     net_transformed = tf.matmul(tf.squeeze(net, axis=[2]), transform)
+    # BxNx1x64
     net_transformed = tf.expand_dims(net_transformed, [2])
 
     net = tf_util.conv2d(net_transformed, 64, [1,1],
@@ -55,9 +66,10 @@ def get_model(point_cloud, is_training, bn_decay=None):
                          scope='conv5', bn_decay=bn_decay)
 
     # Symmetric function: max pooling
+    # Bx1x1x1024
     net = tf_util.max_pool2d(net, [num_point,1],
                              padding='VALID', scope='maxpool')
-
+    # Bx1024
     net = tf.reshape(net, [batch_size, -1])
     net = tf_util.fully_connected(net, 512, bn=True, is_training=is_training,
                                   scope='fc1', bn_decay=bn_decay)
@@ -69,6 +81,7 @@ def get_model(point_cloud, is_training, bn_decay=None):
                           scope='dp2')
     net = tf_util.fully_connected(net, 40, activation_fn=None, scope='fc3')
 
+    #Bx40,
     return net, end_points
 
 
@@ -80,6 +93,7 @@ def get_loss(pred, label, end_points, reg_weight=0.001):
     tf.summary.scalar('classify loss', classify_loss)
 
     # Enforce the transformation as orthogonal matrix
+    # only applied to the feature transform
     transform = end_points['transform'] # BxKxK
     K = transform.get_shape()[1].value
     mat_diff = tf.matmul(transform, tf.transpose(transform, perm=[0,2,1]))
@@ -92,6 +106,7 @@ def get_loss(pred, label, end_points, reg_weight=0.001):
 
 if __name__=='__main__':
     with tf.Graph().as_default():
+        # batch_size, nbr_points, x y z coordinates
         inputs = tf.zeros((32,1024,3))
         outputs = get_model(inputs, tf.constant(True))
         print(outputs)

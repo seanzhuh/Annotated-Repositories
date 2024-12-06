@@ -13,7 +13,8 @@ def placeholder_inputs(batch_size, num_point):
     labels_pl = tf.placeholder(tf.int32, shape=(batch_size))
     return pointclouds_pl, labels_pl
 
-
+# without transform net, i.e., input_transform_net and feature_transform_net in pointnet_cls.py
+# w/o T-Net in the paper
 def get_model(point_cloud, is_training, bn_decay=None):
     """ Classification PointNet, input is BxNx3, output Bx40 """
     batch_size = point_cloud.get_shape()[0].value

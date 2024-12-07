@@ -4,9 +4,11 @@ import torch.nn.functional as F
 from time import time
 import numpy as np
 
+
 def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
     return time()
+
 
 def pc_normalize(pc):
     l = pc.shape[0]
@@ -15,6 +17,7 @@ def pc_normalize(pc):
     m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
     pc = pc / m
     return pc
+
 
 def square_distance(src, dst):
     """
@@ -44,23 +47,26 @@ def index_points(points, idx):
     """
 
     Input:
-        points: input points data, [B, N, C]
-        idx: sample index data, [B, S], S is the number of centroids sampled
+        points: input points data, [B, N, C], C is 3
+        idx: sample index data, 
+        [B, S], S is the number of centroids sampled
+        or [B, npoint, nsample]
     Return:
         new_points:, indexed points data, [B, S, C]
     """
     device = points.device
     B = points.shape[0]
-    view_shape = list(idx.shape) # B, S
-    view_shape[1:] = [1] * (len(view_shape) - 1) # B, 1
-    repeat_shape = list(idx.shape) # B, S
-    repeat_shape[0] = 1 # 1, S
-    # B x S, 
-    # 0 0 0 
+    view_shape = list(idx.shape)  # B, S or B, npoint, n_sample
+    view_shape[1:] = [1] * (len(view_shape) - 1)  # B, 1, or B, 1, 1
+    repeat_shape = list(idx.shape)  # B, S or B, npoint, n_sample
+    repeat_shape[0] = 1  # 1, S or 1, npoint, n_sample
+    # B x S, or B x npoint x n_sample
+    # 0 0 0, or repeat along z dimension
     # 1 1 1
     # 2 2 3
     # 3 3 3
-    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
+    batch_indices = torch.arange(B, dtype=torch.long).to(
+        device).view(view_shape).repeat(repeat_shape)
     # batch_indices[i, j], paired with idx [i, j]
     # so (which point cloud, which sampled farthest point idx in this point cloud)
     new_points = points[batch_indices, idx, :]
@@ -110,17 +116,18 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     _, S, _ = new_xyz.shape
     # at first, for each point cloud, for each centroid in this point cloud
     # the neighbourhood is all points in this cloud, hence arange(N)
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    sqrdists = square_distance(new_xyz, xyz) # B x S x N
+    group_idx = torch.arange(N, dtype=torch.long).to(
+        device).view(1, 1, N).repeat([B, S, 1])
+    sqrdists = square_distance(new_xyz, xyz)  # B x S x N
     # then, for each point cloud, for each centroid in this cloud
     # the last dim in group_idx stores points indexes that are still within the radius
-    group_idx[sqrdists > radius ** 2] = N # outside of radius are given N
+    group_idx[sqrdists > radius ** 2] = N  # outside of radius are given N
     # sort the last dim and take first nsample points lying inside the radius
     # still there is possibility that for a certain centroid, the neighbourhood is less than n sample
     # so group_idx may store points outside the neighbourhood
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N # find points that are still outside the neighbourhood
+    mask = group_idx == N  # find points that are still outside the neighbourhood
     # replace outside points with the first point that lie in the radius for a certain centroid
     group_idx[mask] = group_first[mask]
     return group_idx
@@ -132,23 +139,32 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
         npoint: how many centroids to be sampled from point cloud
         radius:
         nsample: max number of points within the local neighbourhood of sampled centrioids
-        xyz: input points position data, [B, N, 3]
-        points: input points data, [B, N, D]
+        xyz: input points position data, [B, N, 3], it is the centroids coords sampled from previous sa layer or the input cloud if it is sa1
+        points: input points data, [B, N, D], it is the PointNet features of centroids sample from previous layer or None if it is sa1 layer
     Return:
         new_xyz: sampled points position data, [B, npoint, nsample, 3]
         new_points: sampled points data, [B, npoint, nsample, 3+D]
     """
     B, N, C = xyz.shape
     S = npoint
-    fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C]
-    new_xyz = index_points(xyz, fps_idx) # B, npoint, C is 3
-    idx = query_ball_point(radius, nsample, xyz, new_xyz) # B, npoint, nsample
-    grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
-    grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
+    fps_idx = farthest_point_sample(xyz, npoint)  # [B, npoint]
+    new_xyz = index_points(xyz, fps_idx)  # B, npoint, C is 3
+    # B, npoint, nsample, how to make sure that every point in xyz is in idx?
+    idx = query_ball_point(radius, nsample, xyz, new_xyz)
+    # [B, npoint, nsample, C], get the neighbour points coordinates
+    grouped_xyz = index_points(xyz, idx)
+    # move neighbourhood points coords to the local frame of each centroid
+    grouped_xyz_norm = grouped_xyz - \
+        new_xyz.view(B, S, 1, C)  # B, npoint, nsample, C
 
     if points is not None:
-        grouped_points = index_points(points, idx)
-        new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1) # [B, npoint, nsample, C+D]
+        # the points are centroid features from previous sa layer
+        # and idx gives this layer's idx of each local point within this layer's sampled centroids
+        # the idx ranges from 0 - len(centoids from previous layer)
+        # this was to get the features for each
+        grouped_points = index_points(points, idx)  # B, npoint, nsample, D
+        # [B, npoint, nsample, C+D]
+        new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1)
     else:
         new_points = grouped_xyz_norm
     if returnfps:
@@ -169,12 +185,16 @@ def sample_and_group_all(xyz, points):
     device = xyz.device
     B, N, C = xyz.shape
     new_xyz = torch.zeros(B, 1, C).to(device)
+    # 1 the number of centroid in the last layer,
+    # since it is the last layer, it just apllies point net and take the max over all previous centroids features
+    # and return a global feature for this point cloud
+    # N is the number of centroids sampled from previous layer
     grouped_xyz = xyz.view(B, 1, N, C)
     if points is not None:
         new_points = torch.cat([grouped_xyz, points.view(B, 1, N, -1)], dim=-1)
     else:
         new_points = grouped_xyz
-    return new_xyz, new_points
+    return new_xyz, new_points  # B,1,N,C+D
 
 
 class PointNetSetAbstraction(nn.Module):
@@ -201,22 +221,32 @@ class PointNetSetAbstraction(nn.Module):
             new_xyz: sampled points position data, [B, C, S]
             new_points_concat: sample points feature data, [B, D', S]
         """
-        xyz = xyz.permute(0, 2, 1) # BxNx3
+        xyz = xyz.permute(
+            0, 2, 1)  # BxNx3, xyz is the points coords of sampled centroids of previous layer or the original input cloud if it's sa1 layer
         if points is not None:
+            # here the points are features of sampled centroids of previous layer
+            # B x npoint_previous x D_previous
             points = points.permute(0, 2, 1)
 
         if self.group_all:
             new_xyz, new_points = sample_and_group_all(xyz, points)
         else:
-            new_xyz, new_points = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points)
+            new_xyz, new_points = sample_and_group(
+                self.npoint, self.radius, self.nsample, xyz, points)
         # new_xyz: sampled points position data, [B, npoint, C]
-        # new_points: sampled points data, [B, npoint, nsample, C+D]
-        new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]
+        # new_points: sampled points data, [B, npoint, nsample, C+D], the first sa1 layer returns B, npoint, n_sample, C
+        # because points argument is None for sa1
+        # [B, C+D, nsample,npoint], [B,C,nsample,npoint] for sa1 layer
+        new_points = new_points.permute(0, 3, 2, 1)
+        # the following resembles pointNet arch w/o transform net, i.e., T-Net
+        # the following pointNet still processes each local point within each centroid independently
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points =  F.relu(bn(conv(new_points)))
+            # conv is 1 x 1 field size
+            new_points = F.relu(bn(conv(new_points)))
 
-        new_points = torch.max(new_points, 2)[0]
+        # this adds interaction among local points within the same centroids
+        new_points = torch.max(new_points, 2)[0]  # B, C+D, npoint
         new_xyz = new_xyz.permute(0, 2, 1)
         return new_xyz, new_points
 
@@ -264,7 +294,8 @@ class PointNetSetAbstractionMsg(nn.Module):
             grouped_xyz -= new_xyz.view(B, S, 1, C)
             if points is not None:
                 grouped_points = index_points(points, group_idx)
-                grouped_points = torch.cat([grouped_points, grouped_xyz], dim=-1)
+                grouped_points = torch.cat(
+                    [grouped_points, grouped_xyz], dim=-1)
             else:
                 grouped_points = grouped_xyz
 
@@ -272,7 +303,7 @@ class PointNetSetAbstractionMsg(nn.Module):
             for j in range(len(self.conv_blocks[i])):
                 conv = self.conv_blocks[i][j]
                 bn = self.bn_blocks[i][j]
-                grouped_points =  F.relu(bn(conv(grouped_points)))
+                grouped_points = F.relu(bn(conv(grouped_points)))
             new_points = torch.max(grouped_points, 2)[0]  # [B, D', S]
             new_points_list.append(new_points)
 
@@ -319,7 +350,8 @@ class PointNetFeaturePropagation(nn.Module):
             dist_recip = 1.0 / (dists + 1e-8)
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
             weight = dist_recip / norm
-            interpolated_points = torch.sum(index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2)
+            interpolated_points = torch.sum(index_points(
+                points2, idx) * weight.view(B, N, 3, 1), dim=2)
 
         if points1 is not None:
             points1 = points1.permute(0, 2, 1)
@@ -332,4 +364,3 @@ class PointNetFeaturePropagation(nn.Module):
             bn = self.mlp_bns[i]
             new_points = F.relu(bn(conv(new_points)))
         return new_points
-

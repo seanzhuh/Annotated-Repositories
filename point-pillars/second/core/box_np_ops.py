@@ -463,6 +463,7 @@ def limit_period(val, offset=0.5, period=np.pi):
 
 
 def projection_matrix_to_CRT_kitti(proj):
+    # camera matrix decomposition to get the intrinsics and extrinsics
     # P = C @ [R|T]
     # C is upper triangular matrix, so we need to inverse CR and use QR
     # stable for all kitti camera projection matrix
@@ -477,17 +478,22 @@ def projection_matrix_to_CRT_kitti(proj):
 
 
 def get_frustum(bbox_image, C, near_clip=0.001, far_clip=100):
+    # this is a more detailed version of get_geometry() in lift-splat-shoot/src/models.py ?
     fku = C[0, 0]
-    fkv = -C[1, 1]
-    u0v0 = C[0:2, 2]
+    fkv = -C[1, 1] # why negative?
+    u0v0 = C[0:2, 2] # shift from image plane to pixel plane
     z_points = np.array(
-        [near_clip] * 4 + [far_clip] * 4, dtype=C.dtype)[:, np.newaxis]
+        [near_clip] * 4 + [far_clip] * 4, dtype=C.dtype)[:, np.newaxis] # 8 x 1
     b = bbox_image
     box_corners = np.array(
         [[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]],
-        dtype=C.dtype)
+        dtype=C.dtype) # 4 x 2, [x1, y1], [x1, y2], [x2, y2], [x2, y1], in pixel frame
+    # -u0v0: move from pixel frame to image frame
+    # / (fk{u/v} / near_clip) == *near_clip/fk{u/v}, inverse perspective projection
+    # near_clip specifies the depth, the following transforms from image frame to camera frame
+    # get the corners of image in camera frame
     near_box_corners = (box_corners - u0v0) / np.array(
-        [fku / near_clip, -fkv / near_clip], dtype=C.dtype)
+        [fku / near_clip, -fkv / near_clip], dtype=C.dtype) # negative fkv counter-acts -C[1,1]?
     far_box_corners = (box_corners - u0v0) / np.array(
         [fku / far_clip, -fkv / far_clip], dtype=C.dtype)
     ret_xy = np.concatenate(
@@ -605,7 +611,8 @@ def project_to_image(points_3d, proj_mat):
 
 
 def camera_to_lidar(points, r_rect, velo2cam):
-    points_shape = list(points.shape[0:-1])
+    # points: 8 x 3
+    points_shape = list(points.shape[0:-1]) # [8]
     if points.shape[-1] == 3:
         points = np.concatenate([points, np.ones(points_shape + [1])], axis=-1)
     lidar_points = points @ np.linalg.inv((r_rect @ velo2cam).T)
@@ -639,11 +646,11 @@ def box_lidar_to_camera(data, r_rect, velo2cam):
 def remove_outside_points(points, rect, Trv2c, P2, image_shape):
     # 5x faster than remove_outside_points_v1(2ms vs 10ms)
     C, R, T = projection_matrix_to_CRT_kitti(P2)
-    image_bbox = [0, 0, image_shape[1], image_shape[0]]
-    frustum = get_frustum(image_bbox, C)
+    image_bbox = [0, 0, image_shape[1], image_shape[0]] # 0, 0, w, h
+    frustum = get_frustum(image_bbox, C) # in image frame, 8 x 3
     frustum -= T
-    frustum = np.linalg.inv(R) @ frustum.T
-    frustum = camera_to_lidar(frustum.T, rect, Trv2c)
+    frustum = np.linalg.inv(R) @ frustum.T # in camera frame
+    frustum = camera_to_lidar(frustum.T, rect, Trv2c) # in lidar frame
     frustum_surfaces = corner_to_surfaces_3d_jit(frustum[np.newaxis, ...])
     indices = points_in_convex_polygon_3d_jit(points[:, :3], frustum_surfaces)
     points = points[indices.reshape([-1])]

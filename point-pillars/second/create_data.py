@@ -37,6 +37,7 @@ def _calculate_num_points_in_gt(data_path, infos, relative_path, remove_outside=
         Trv2c = info['calib/Tr_velo_to_cam']
         P2 = info['calib/P2']
         if remove_outside:
+            # only keep the points that lie inside the frustum of the captured image
             points_v = box_np_ops.remove_outside_points(points_v, rect, Trv2c, P2,
                                                         info["img_shape"])
 
@@ -48,11 +49,11 @@ def _calculate_num_points_in_gt(data_path, infos, relative_path, remove_outside=
         loc = annos['location'][:num_obj]
         rots = annos['rotation_y'][:num_obj]
         gt_boxes_camera = np.concatenate(
-            [loc, dims, rots[..., np.newaxis]], axis=1)
+            [loc, dims, rots[..., np.newaxis]], axis=1) # in camera frame, num_obj x 7
         gt_boxes_lidar = box_np_ops.box_camera_to_lidar(
-            gt_boxes_camera, rect, Trv2c)
+            gt_boxes_camera, rect, Trv2c) # in lidar frame, num_obj x 7
         indices = box_np_ops.points_in_rbbox(points_v[:, :3], gt_boxes_lidar)
-        num_points_in_gt = indices.sum(0)
+        num_points_in_gt = indices.sum(0) # number of points in gt_boxes_lidar, is of len num_gt
         num_ignored = len(annos['dimensions']) - num_obj
         num_points_in_gt = np.concatenate(
             [num_points_in_gt, -np.ones([num_ignored])])
@@ -63,10 +64,10 @@ def create_kitti_info_file(data_path,
                            save_path=None,
                            create_trainval=False,
                            relative_path=True):
-    train_img_ids = _read_imageset_file("./data/ImageSets/train.txt")
-    val_img_ids = _read_imageset_file("./data/ImageSets/val.txt")
+    train_img_ids = _read_imageset_file("./data/ImageSets/train.txt") # ~3700 images
+    val_img_ids = _read_imageset_file("./data/ImageSets/val.txt") # ~3700 images
     trainval_img_ids = _read_imageset_file("./data/ImageSets/trainval.txt")
-    test_img_ids = _read_imageset_file("./data/ImageSets/test.txt")
+    test_img_ids = _read_imageset_file("./data/ImageSets/test.txt") # 7518 test images
 
     print("Generate info. this may take several minutes.")
     if save_path is None:
@@ -172,6 +173,7 @@ def create_reduced_point_cloud(data_path,
                                test_info_path=None,
                                save_path=None,
                                with_back=False):
+    # only keep points that are inside the frustum of captured image
     if train_info_path is None:
         train_info_path = pathlib.Path(data_path) / 'kitti_infos_train.pkl'
     if val_info_path is None:
@@ -227,6 +229,7 @@ def create_groundtruth_database(data_path,
         num_features = 4
         if 'pointcloud_num_features' in info:
             num_features = info['pointcloud_num_features']
+        # not reduced point clouds, it's possible that points are outside the frustum of this image
         points = np.fromfile(
             velodyne_path, dtype=np.float32, count=-1).reshape([-1, num_features])
 
@@ -235,6 +238,7 @@ def create_groundtruth_database(data_path,
         P2 = info['calib/P2']
         Trv2c = info['calib/Tr_velo_to_cam']
         if not lidar_only:
+            # only keep points that are inside the frustum of this image
             points = box_np_ops.remove_outside_points(points, rect, Trv2c, P2,
                                                         info["img_shape"])
 
@@ -244,8 +248,8 @@ def create_groundtruth_database(data_path,
         difficulty = annos["difficulty"]
         gt_idxes = annos["index"]
         num_obj = np.sum(annos["index"] >= 0)
-        rbbox_cam = kitti.anno_to_rbboxes(annos)[:num_obj]
-        rbbox_lidar = box_np_ops.box_camera_to_lidar(rbbox_cam, rect, Trv2c)
+        rbbox_cam = kitti.anno_to_rbboxes(annos)[:num_obj] # boxes in camera frame
+        rbbox_lidar = box_np_ops.box_camera_to_lidar(rbbox_cam, rect, Trv2c) # boxes in lidar frame
         if bev_only: # set z and h to limits
             assert coors_range is not None
             rbbox_lidar[:, 2] = coors_range[2]
@@ -259,6 +263,7 @@ def create_groundtruth_database(data_path,
             group_ids = np.arange(bboxes.shape[0], dtype=np.int64)
         point_indices = box_np_ops.points_in_rbbox(points, rbbox_lidar)
         for i in range(num_obj):
+            # per object file
             filename = f"{image_idx}_{names[i]}_{gt_idxes[i]}.bin"
             filepath = database_save_path / filename
             gt_points = points[point_indices[:, i]]

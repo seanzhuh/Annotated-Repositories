@@ -137,25 +137,32 @@ def get_kitti_image_info(path,
         image_ids = list(range(image_ids))
 
     def map_func(idx):
-        image_info = {'image_idx': idx, 'pointcloud_num_features': 4}
+        image_info = {'image_idx': idx, 
+                      'pointcloud_num_features': 4}
         annotations = None
         if velodyne:
+            # corresponding .bin file in training/velodyne/{:06d}.format(idx).bin
             image_info['velodyne_path'] = get_velodyne_path(
                 idx, path, training, relative_path)
+        # training/image_2/{:06d}.format(idx).png
         image_info['img_path'] = get_image_path(idx, path, training,
                                                 relative_path)
         if with_imageshape:
             img_path = image_info['img_path']
             if relative_path:
                 img_path = str(root_path / img_path)
+            # original image shape
             image_info['img_shape'] = np.array(
                 io.imread(img_path).shape[:2], dtype=np.int32)
         if label_info:
+            # training/image_2/{:06d}.format(idx)
             label_path = get_label_path(idx, path, training, relative_path)
             if relative_path:
                 label_path = str(root_path / label_path)
+            # annotations to 'idx'-th image
             annotations = get_label_anno(label_path)
         if calib:
+            # training/calib/{:06d}.format(idx).txt
             calib_path = get_calib_path(
                 idx, path, training, relative_path=False)
             with open(calib_path, 'r') as f:
@@ -575,18 +582,21 @@ def get_label_anno(label_path):
     #     content = []
     # else:
     content = [line.strip().split(' ') for line in lines]
-    num_objects = len([x[0] for x in content if x[0] != 'DontCare'])
-    annotations['name'] = np.array([x[0] for x in content])
-    num_gt = len(annotations['name'])
+    num_objects = len([x[0] for x in content if x[0] != 'DontCare']) # exclude DontCare
+    annotations['name'] = np.array([x[0] for x in content]) # include DontCare
+    num_gt = len(annotations['name'])  # include DontCare
     annotations['truncated'] = np.array([float(x[1]) for x in content])
     annotations['occluded'] = np.array([int(x[2]) for x in content])
     annotations['alpha'] = np.array([float(x[3]) for x in content])
+    # num_gt x 4, x1, y1, x2, y2, in image(pixel) coordinates
     annotations['bbox'] = np.array(
         [[float(info) for info in x[4:8]] for x in content]).reshape(-1, 4)
     # dimensions will convert hwl format to standard lhw(camera) format.
+    # num_gt x 3, lhw
     annotations['dimensions'] = np.array(
         [[float(info) for info in x[8:11]] for x in content]).reshape(
             -1, 3)[:, [2, 0, 1]]
+    # num_gt x 3, camera frame
     annotations['location'] = np.array(
         [[float(info) for info in x[11:14]] for x in content]).reshape(-1, 3)
     annotations['rotation_y'] = np.array(
@@ -595,8 +605,10 @@ def get_label_anno(label_path):
         annotations['score'] = np.array([float(x[15]) for x in content])
     else:
         annotations['score'] = np.zeros((annotations['bbox'].shape[0], ))
+    # 0 - range(num_objects), -1, -1, -1, ..., -1
     index = list(range(num_objects)) + [-1] * (num_gt - num_objects)
     annotations['index'] = np.array(index, dtype=np.int32)
+    # 0 - num_g
     annotations['group_ids'] = np.arange(num_gt, dtype=np.int32)
     return annotations
 

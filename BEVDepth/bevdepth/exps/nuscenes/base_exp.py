@@ -239,6 +239,7 @@ class BEVDepthLightningModel(LightningModule):
         return self.model(sweep_imgs, mats)
 
     def training_step(self, batch):
+        # 
         (sweep_imgs, mats, _, _, gt_boxes, gt_labels, depth_labels) = batch
         if torch.cuda.is_available():
             for key, value in mats.items():
@@ -400,7 +401,7 @@ class BEVDepthLightningModel(LightningModule):
             num_workers=4,
             drop_last=True,
             shuffle=False,
-            collate_fn=partial(collate_fn,
+            collate_fn=partial(collate_fn, # wraps __getitem__() of NuscDetDataset
                                is_return_depth=self.data_return_depth
                                or self.use_fusion),
             sampler=None,

@@ -611,7 +611,7 @@ class NuscDetDataset(Dataset):
             elif self.infos[cur_idx]['scene_token'] != self.infos[idx][
                     'scene_token']:
                 cur_idx = idx
-            info = self.infos[cur_idx]
+            info = self.infos[cur_idx] # info dict in scripts/gen_info.py generate_info()
             cam_infos.append(info['cam_infos'])
             lidar_infos.append(info['lidar_infos'])
             lidar_sweep_timestamps = [

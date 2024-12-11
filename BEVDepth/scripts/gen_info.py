@@ -65,6 +65,7 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=10):
             #     cam_sweeps.append(dict())
             for k, cam_data in enumerate(cam_datas):
                 sweep_cam_data = cam_data
+                # previous max_cam_sweeps sample_data for k-th camera
                 for j in range(max_cam_sweeps):
                     if sweep_cam_data['prev'] == '':
                         break
@@ -75,7 +76,7 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=10):
                         sweep_cam_info['sample_token'] = sweep_cam_data[
                             'sample_token']
                         if sweep_cam_info['sample_token'] != cam_data[
-                                'sample_token']:
+                                'sample_token']:  # why here? maybe related to timestamp?
                             break
                         sweep_cam_info['ego_pose'] = nusc.get(
                             'ego_pose', cam_data['ego_pose_token'])
@@ -103,7 +104,7 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=10):
                         sweep_lidar_info['sample_token'] = sweep_lidar_data[
                             'sample_token']
                         if sweep_lidar_info['sample_token'] != lidar_data[
-                                'sample_token']:
+                                'sample_token']:  # why here? maybe related to timestamp?
                             break
                         sweep_lidar_info['ego_pose'] = nusc.get(
                             'ego_pose', sweep_lidar_data['ego_pose_token'])

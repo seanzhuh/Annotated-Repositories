@@ -211,6 +211,20 @@ class DepthNet(nn.Module):
         )
 
     def forward(self, x, mats_dict):
+        # x: B*num_cameras x C x H x W, image feature maps from neck
+        # mats_dict(dict):
+        # sensor2ego_mats(Tensor): Transformation matrix from
+        #     camera to ego with shape of(B, num_sweeps,
+        #                                     num_cameras, 4, 4).
+        # intrin_mats(Tensor): Intrinsic matrix with shape
+        #     of (B, num_sweeps, num_cameras, 4, 4).
+        # ida_mats(Tensor): Transformation matrix for ida with
+        #     shape of (B, num_sweeps, num_cameras, 4, 4).
+        # sensor2sensor_mats(Tensor): Transformation matrix
+        #     from key frame camera to sweep frame camera with
+        #     shape of(B, num_sweeps, num_cameras, 4, 4).
+        # bda_mat(Tensor): Rotation matrix for bda with shape
+        #     of (B, 4, 4).
         intrins = mats_dict['intrin_mats'][:, 0:1, ..., :3, :3]
         batch_size = intrins.shape[0]
         num_cams = intrins.shape[2]
@@ -222,10 +236,10 @@ class DepthNet(nn.Module):
             [
                 torch.stack(
                     [
-                        intrins[:, 0:1, ..., 0, 0],
-                        intrins[:, 0:1, ..., 1, 1],
-                        intrins[:, 0:1, ..., 0, 2],
-                        intrins[:, 0:1, ..., 1, 2],
+                        intrins[:, 0:1, ..., 0, 0], # fx
+                        intrins[:, 0:1, ..., 1, 1], # fy
+                        intrins[:, 0:1, ..., 0, 2], # shift_x, image plane -> pixel plane
+                        intrins[:, 0:1, ..., 1, 2], # shift_y, image plane -> pixel plane
                         ida[:, 0:1, ..., 0, 0],
                         ida[:, 0:1, ..., 0, 1],
                         ida[:, 0:1, ..., 0, 3],
@@ -504,7 +518,7 @@ class BaseLSSFPN(nn.Module):
         """
         batch_size, num_sweeps, num_cams, num_channels, img_height, \
             img_width = sweep_imgs.shape
-        img_feats = self.get_cam_feats(sweep_imgs)
+        img_feats = self.get_cam_feats(sweep_imgs) # B, num_sweeps, num_cameras, C, H, W
         source_features = img_feats[:, 0, ...]
         depth_feature = self._forward_depth_net(
             source_features.reshape(batch_size * num_cams,

@@ -610,6 +610,8 @@ class LSSViewTransformerFunction3D(BaseModule):
             self.initial_flag = False
 
     def view_transform_core(self, cam_params, depth, tran_feat):
+        # tran_feat: B x N x C x H x W
+        # depth: B x N x 80 x H x W
        #  B, N, C, H, W = input[0].shape
 
         # Lift-Splat

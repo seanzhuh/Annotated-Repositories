@@ -30,7 +30,7 @@ try:
 except ImportError:
     from mmdet3d.utils import setup_multi_processes
 
-
+w
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
     parser.add_argument('config', help='train config file path')

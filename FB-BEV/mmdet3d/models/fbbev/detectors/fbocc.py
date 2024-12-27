@@ -141,7 +141,7 @@ class FBOCC(CenterPoint):
         B, N, C, imH, imW = imgs.shape
         imgs = imgs.view(B * N, C, imH, imW)
       
-        x = self.img_backbone(imgs)
+        x = self.img_backbone(imgs) # ResNet50
        
         if self.with_img_neck:
             x = self.img_neck(x)
@@ -317,13 +317,13 @@ class FBOCC(CenterPoint):
 
         return_map = {}
 
-        context = self.image_encoder(img[0])
+        context = self.image_encoder(img[0]) # B x N x C x H x W
         cam_params = img[1:7]
         if self.with_specific_component('depth_net'):
             mlp_input = self.depth_net.get_mlp_input(*cam_params)
             context, depth = self.depth_net(context, mlp_input)
-            return_map['depth'] = depth
-            return_map['context'] = context
+            return_map['depth'] = depth # B x N x 80 x H x W
+            return_map['context'] = context # B x N x C x H x W
         else:
             context=None
             depth=None
